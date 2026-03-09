@@ -1,0 +1,17 @@
+{
+    "require":{
+	"php": ">=8.0.0",
+	"atk4/ui": "dev-develop"
+    },
+    "require-release": {
+	"php": ">=8.0.0",
+	"atk4/ui": "^5.0"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+	"psr-4": {
+	    "Atk4\\Duallistbox\\": "src/"
+	}
+    }
+}

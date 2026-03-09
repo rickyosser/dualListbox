@@ -1,0 +1,16 @@
+
+<div {$attributes}>{rows}
+  <div class="ui middles aligned selection list">{row}
+    <div class="item"><i class="{$icon} icon"></i>
+      <div class="content"><a class="content" href="{$_href}">{$_title}</a>
+      </div>
+    </div>{/row}
+  </div>
+  {empty}
+  <div class="item">
+    <div class="content">
+      <div class="description">{$no_records}</div>
+    </div>
+  </div>{/empty}
+</div>{/rows}
+</div>
