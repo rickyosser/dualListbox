@@ -1,0 +1,170 @@
+includes:
+    - phar://phpstan.phar/conf/bleedingEdge.neon
+
+parameters:
+    level: 6
+    checkMissingOverrideMethodAttribute: true
+    paths:
+        - .
+    excludePaths:
+        - vendor
+
+    ignoreErrors:
+        - '~^Unsafe usage of new static\(\)\.$~'
+
+        # relax strict rules
+        - '~^Only booleans are allowed in .+, .+ given( on the (left|right) side)?\.$~'
+        - '~^Variable (static )?(property access|method call) on .+\.$~'
+
+        # assign to generic callable property is broken https://github.com/phpstan/phpstan/issues/8964
+        -
+            path: '*'
+            identifier: assign.propertyType
+            message: '~^Property Atk4\\Data\\Model\\UserAction::\$(enabled|preview) .*Closure<.+ does not accept .*Closure\(.+\.$~'
+            count: 3
+
+        # https://github.com/phpstan/phpstan/issues/11718
+        -
+            path: 'src/Reference.php'
+            identifier: argument.type
+            message: '~^Parameter #1 \$key of method Atk4\\Data\\Reference\\WeakAnalysingMap<list<mixed>,Closure,Atk4\\Data\\Model\|Atk4\\Data\\Persistence>::(get|set)\(\) expects list<mixed>, array\{0: Atk4\\Data\\Reference\\WeakAnalysingMap<list<mixed>, Closure, Atk4\\Data\\Model\|Atk4\\Data\\Persistence>, 1: non-falsy-string, 2: class-string<object>\|null, 3\?: object\|null, 4\?: non-empty-array\} given\.$~'
+            count: 2
+
+        # TODO report to phpstan, errors cannot be ignore inline
+        -
+            path: 'src/Persistence/Sql/Postgresql/PlatformTrait.php'
+            identifier: classConstant.deprecated
+            message: '~^Fetching deprecated class constant CREATE_INDEXES of class Doctrine\\DBAL\\Platforms\\AbstractPlatform\.$~'
+            count: 1
+        -
+            path: 'src/Persistence/Sql/Postgresql/PlatformTrait.php'
+            identifier: arguments.count
+            message: '~^Method Doctrine\\DBAL\\Platforms\\AbstractPlatform::getCreateTableSQL\(\) invoked with 2 parameters, 1 required\.$~'
+            count: 1
+
+        # TODO once DBAL 3.x is dropped
+        -
+            path: '*'
+            identifier: method.deprecated
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: property.deprecated
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: method.internal
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: method.internalClass
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: property.internalClass
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: classConstant.internalClass
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: parameter.internalClass
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: return.internalClass
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: new.internalClass
+            message: '~^.*\\DBAL\\~'
+        -
+            path: '*'
+            identifier: generics.internalClassBound
+            message: '~^.*\\DBAL\\~'
+
+        # remove once https://github.com/phpstan/phpstan/issues/11488 is fixed
+        -
+            path: 'src/Persistence/Sql/Mssql/Query.php'
+            identifier: nullCoalesce.variable
+            message: '~^Variable \$operator on left side of \?\? is never defined\.$~'
+            count: 1
+        -
+            path: 'src/Persistence/Sql/Mssql/Query.php'
+            identifier: instanceof.alwaysFalse
+            message: '~^Instanceof between \*NEVER\* and Atk4\\Data\\Field will always evaluate to false\.$~'
+            count: 1
+        -
+            path: 'src/Persistence/Sql/Mssql/Query.php'
+            identifier: booleanAnd.alwaysFalse
+            message: '~^Result of && is always false\.$~'
+            count: 2
+        -
+            path: 'src/Persistence/Sql/Oracle/Query.php'
+            identifier: nullCoalesce.variable
+            message: '~^Variable \$operator on left side of \?\? is never defined\.$~'
+            count: 1
+        -
+            path: 'src/Persistence/Sql/Oracle/Query.php'
+            identifier: instanceof.alwaysFalse
+            message: '~^Instanceof between \*NEVER\* and Atk4\\Data\\Field will always evaluate to false\.$~'
+            count: 2
+        -
+            path: 'src/Persistence/Sql/Oracle/Query.php'
+            identifier: booleanAnd.alwaysFalse
+            message: '~^Result of && is always false\.$~'
+            count: 3
+        -
+            path: 'src/Persistence/Sql/Query.php'
+            identifier: identical.alwaysFalse
+            message: '~^Strict comparison using === between \*NEVER\* and 3 will always evaluate to false\.$~'
+            count: 1
+        -
+            path: 'src/Persistence/Sql/Query.php'
+            identifier: variable.undefined
+            message: '~^(Undefined variable: \$(operator|value)|Variable \$value might not be defined\.)$~'
+            count: 2
+
+        # TODO these rules are generated, this ignores should be fixed in the code
+        # for src/Schema/TestCase.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Persistence::dsql\(\)\.$~'
+        # for src/Field/SqlExpressionField.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Model::expr\(\)\.$~'
+        # for src/Model.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Persistence::export\(\)\.$~'
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Persistence::prepareIterator\(\)\.$~'
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Persistence::action\(\)\.$~'
+        # for src/Model/ReferencesTrait.php (in context of class Atk4\Data\Model)
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Reference::refLink\(\)\.$~'
+        # for tests/FieldTest.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Reference\\HasOne::addTitle\(\)\.$~'
+        # for tests/JoinSqlTest.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Reference\\HasOne::addField\(\)\.$~'
+        # for tests/ReferenceSqlTest.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Reference\\HasOne::addFields\(\)\.$~'
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Reference::addTitle\(\)\.$~'
+        # for tests/ScopeTest.php
+        -
+            identifier: method.notFound
+            message: '~^Call to an undefined method Atk4\\Data\\Tests\\SUser::expr\(\)\.$~'

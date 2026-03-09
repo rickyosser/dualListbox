@@ -1,0 +1,722 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Atk4\Ui;
+
+use Atk4\Core\Factory;
+use Atk4\Core\HookTrait;
+use Atk4\Data\Field;
+use Atk4\Data\Model;
+use Atk4\Ui\Js\Jquery;
+use Atk4\Ui\Js\JsCallbackLoadableValue;
+use Atk4\Ui\Js\JsExpression;
+use Atk4\Ui\Js\JsExpressionable;
+use Atk4\Ui\Js\JsFunction;
+use Atk4\Ui\Js\JsReload;
+use Atk4\Ui\UserAction\ConfirmationExecutor;
+use Atk4\Ui\UserAction\ExecutorFactory;
+use Atk4\Ui\UserAction\ExecutorInterface;
+use Atk4\Ui\View\ModelTrait;
+
+/**
+ * @phpstan-type JsCallbackSetWithRowIdClosure \Closure(Jquery, mixed): (JsExpressionable|View|string|void)
+ */
+class Grid extends View
+{
+    use HookTrait;
+    use ModelTrait {
+        setModel as private _setModel;
+    }
+
+    /** @var Menu|array<mixed>|false Will be initialized to Menu object, however you can set this to false to disable menu. */
+    public $menu;
+
+    /** @var JsSearch|null */
+    public $quickSearch;
+
+    /** @var list<string> Field names to search for in Model. It will automatically add quicksearch component to grid if set. */
+    public $searchFieldNames = [];
+
+    /**
+     * Paginator is automatically added below the table and will divide long tables into pages.
+     *
+     * You can provide your own Paginator object here to customize.
+     *
+     * @var Paginator|false
+     */
+    public $paginator;
+
+    /** @var int Number of items per page to display. */
+    public $ipp = 50;
+
+    /**
+     * Calling addActionButton will add a new column inside $table, and will be re-used
+     * for next addActionButton().
+     *
+     * @var Table\Column\ActionButtons|null
+     */
+    public $actionButtons;
+
+    /**
+     * Calling addActionMenuItem will add a new column inside $table with dropdown menu,
+     * and will be re-used for next addActionMenuItem().
+     *
+     * @var Table\Column|null
+     */
+    public $actionMenu;
+
+    /**
+     * Calling addSelection will add a new column inside $table, containing checkboxes.
+     * This column will be stored here, in case you want to access it.
+     *
+     * @var Table\Column\Checkbox
+     */
+    public $selection;
+
+    /**
+     * Grid can be sorted by clicking on column headers. This will be automatically enabled
+     * if Model supports ordering. You may override by setting true/false.
+     *
+     * @var bool
+     */
+    public $sortable;
+
+    /** @var string|null Set this if you want GET argument name to look beautifully for sorting. */
+    public $sortTrigger;
+
+    /** @var Table|false Component that actually renders data rows / columns and possibly totals. */
+    public $table;
+
+    /** @var View The container for table and paginator. */
+    public $container;
+
+    public $defaultTemplate = 'grid.html';
+
+    /** @var array<mixed> Table\Column seed to use for ActionButtons. */
+    protected $actionButtonsSeed = [Table\Column\ActionButtons::class];
+
+    /** @var array<mixed> Table\Column seed to use for ActionMenu. */
+    protected $actionMenuSeed = [Table\Column\ActionMenu::class, 'label' => 'Actions...'];
+
+    #[\Override]
+    protected function init(): void
+    {
+        parent::init();
+
+        $this->container = View::addTo($this, ['template' => $this->template->cloneRegion('Container')]);
+        $this->template->del('Container');
+
+        if (!$this->sortTrigger) {
+            $this->sortTrigger = $this->name . '_sort';
+        }
+
+        if ($this->menu !== false && !is_object($this->menu)) {
+            $this->menu = $this->add(Factory::factory([Menu::class, 'activateOnClick' => false], $this->menu), 'Menu');
+        }
+
+        $this->table = $this->initTable();
+
+        if ($this->paginator !== false) {
+            $seg = View::addTo($this->container, [], ['Paginator'])->setStyle('text-align', 'center');
+            $this->paginator = $seg->add(Factory::factory([Paginator::class, 'reload' => $this->container], $this->paginator));
+            $this->stickyGet($this->paginator->name);
+        }
+
+        // TODO dirty way to set stickyGet - add addQuickSearch to find the expected search input component ID and then remove it
+        if ($this->menu !== false) {
+            $appUniqueHashesBackup = $this->getApp()->uniqueNameHashes;
+            $menuElementNameCountsBackup = \Closure::bind(fn () => $this->_elementNameCounts, $this->menu, AbstractView::class)();
+            try {
+                $menuRight = $this->menu->addMenuRight(); // @phpstan-ignore method.notFound
+                $menuItemView = View::addTo($menuRight->addItem());
+                $quickSearch = JsSearch::addTo($menuItemView);
+                $this->stickyGet($quickSearch->name . '_q');
+                $this->menu->removeElement($menuRight->shortName);
+            } finally {
+                $this->getApp()->uniqueNameHashes = $appUniqueHashesBackup;
+                \Closure::bind(fn () => $this->_elementNameCounts = $menuElementNameCountsBackup, $this->menu, AbstractView::class)();
+            }
+        }
+    }
+
+    protected function initTable(): Table
+    {
+        /** @var Table */
+        $table = $this->container->add(Factory::factory([Table::class, 'class.very compact very basic striped single line' => true, 'reload' => $this->container], $this->table), 'Table');
+
+        return $table;
+    }
+
+    /**
+     * Add new column to grid. If column with this name already exists,
+     * an. Simply calls Table::addColumn(), so check that method out.
+     *
+     * @param string|null                                    $name            Data model field name
+     * @param array<mixed>|Table\Column                      $columnDecorator
+     * @param ($name is null ? array{} : array<mixed>|Field) $field
+     *
+     * @return Table\Column
+     */
+    public function addColumn(?string $name, $columnDecorator = [], $field = [])
+    {
+        return $this->table->addColumn($name, $columnDecorator, $field);
+    }
+
+    /**
+     * Add additional decorator for existing column.
+     *
+     * @param array<mixed>|Table\Column $seed
+     *
+     * @return Table\Column
+     */
+    public function addDecorator(string $name, $seed)
+    {
+        return $this->table->addDecorator($name, $seed);
+    }
+
+    /**
+     * Add a new button to the Grid Menu with a given text.
+     *
+     * @param string $label
+     */
+    public function addButton($label): Button
+    {
+        if (!$this->menu) {
+            throw new Exception('Unable to add Button without Menu');
+        }
+
+        return Button::addTo($this->menu->addItem(), [$label]);
+    }
+
+    /**
+     * Set item per page value.
+     *
+     * If an array is passed, it will also add an ItemPerPageSelector to paginator.
+     *
+     * @param int|list<int> $ipp
+     * @param string        $label
+     */
+    public function setIpp($ipp, $label = 'Items per page:'): void
+    {
+        if (is_array($ipp)) {
+            $this->addItemsPerPageSelector($ipp, $label);
+        } else {
+            $this->ipp = $ipp;
+        }
+    }
+
+    /**
+     * Add ItemsPerPageSelector View in grid menu or paginator in order to dynamically setup number of item per page.
+     *
+     * @param list<int> $items an array of item's per page value
+     * @param string    $label the memu item label
+     *
+     * @return $this
+     */
+    public function addItemsPerPageSelector(array $items = [10, 100, 1000], $label = 'Items per page:')
+    {
+        $ipp = (int) $this->container->stickyGet('ipp');
+        if ($ipp) {
+            $this->ipp = $ipp;
+        } else {
+            $this->ipp = $items[0];
+        }
+
+        $pageLength = ItemsPerPageSelector::addTo($this->paginator, ['pageLengthItems' => $items, 'label' => $label, 'currentIpp' => $this->ipp], ['afterPaginator']);
+        $this->paginator->template->trySet('PaginatorType', 'ui grid');
+
+        $sortBy = $this->getSortBy();
+        if ($sortBy) {
+            $pageLength->stickyGet($this->sortTrigger, $sortBy);
+        }
+
+        $pageLength->onPageLengthSelect(function (int $ipp) {
+            $this->ipp = $ipp;
+            $this->setModelLimitFromPaginator();
+            // add ipp to quicksearch
+            if ($this->quickSearch instanceof JsSearch) {
+                $this->container->js(true, $this->quickSearch->js()->atkJsSearch('setUrlArgs', ['ipp', $this->ipp]));
+            }
+            $this->applySort();
+
+            // return the view to reload
+            return $this->container;
+        });
+
+        return $this;
+    }
+
+    /**
+     * Add dynamic scrolling paginator.
+     *
+     * @param int                  $ipp          number of item per page to start with
+     * @param array<string, mixed> $options      an array with JS Scroll plugin options
+     * @param View                 $container    the container holding the lister for scrolling purpose
+     * @param string               $scrollRegion A specific template region to render. Render output is append to container HTML element.
+     *
+     * @return $this
+     */
+    public function addJsPaginator($ipp, array $options = [], $container = null, $scrollRegion = 'Body')
+    {
+        if ($this->paginator) {
+            $this->paginator->destroy();
+            // prevent action(count) to be output twice
+            $this->paginator = null;
+        }
+
+        $sortBy = $this->getSortBy();
+        if ($sortBy) {
+            $this->stickyGet($this->sortTrigger, $sortBy);
+        }
+        $this->applySort();
+
+        $this->table->addJsPaginator($ipp, $options, $container, $scrollRegion);
+
+        return $this;
+    }
+
+    /**
+     * Add dynamic scrolling paginator in container.
+     * Use this to make table headers fixed.
+     *
+     * @param int                  $ipp             number of item per page to start with
+     * @param int                  $containerHeight number of pixel the table container should be
+     * @param array<string, mixed> $options         an array with JS Scroll plugin options
+     * @param View                 $container       the container holding the lister for scrolling purpose
+     * @param string               $scrollRegion    A specific template region to render. Render output is append to container HTML element.
+     *
+     * @return $this
+     */
+    public function addJsPaginatorInContainer($ipp, $containerHeight, array $options = [], $container = null, $scrollRegion = 'Body')
+    {
+        $this->table->hasCollapsingCssActionColumn = false;
+        $options = array_merge($options, [
+            'hasFixTableHeader' => true,
+            'tableContainerHeight' => $containerHeight,
+        ]);
+        // adding a state context to JS scroll plugin
+        $options = array_merge(['stateContext' => $this->container], $options);
+
+        return $this->addJsPaginator($ipp, $options, $container, $scrollRegion);
+    }
+
+    /**
+     * Add Search input field using JS action.
+     * By default, will query server when using Enter key on input search field.
+     * You can change it to query server on each keystroke by passing $autoQuery true,.
+     *
+     * @param list<string> $fields       the list of fields to search for
+     * @param bool         $hasAutoQuery will query server on each key pressed
+     */
+    public function addQuickSearch($fields = [], $hasAutoQuery = false): void
+    {
+        if ($this->model === null) {
+            throw new Exception('Call setModel() before addQuickSearch()');
+        }
+
+        if (!$fields) {
+            $fields = [$this->model->titleField];
+        }
+
+        if (!$this->menu) {
+            throw new Exception('Unable to add QuickSearch without Menu');
+        }
+
+        $view = View::addTo($this->menu->addMenuRight()->addItem());
+
+        $this->quickSearch = JsSearch::addTo($view, ['reload' => $this->container, 'autoQuery' => $hasAutoQuery]);
+        $q = $this->stickyGet($this->quickSearch->name . '_q') ?? '';
+        $qWords = preg_split('~\s+~', $q, -1, \PREG_SPLIT_NO_EMPTY);
+        if (count($qWords) > 0) {
+            $andScope = Model\Scope::createAnd();
+            foreach ($qWords as $v) {
+                $orScope = Model\Scope::createOr();
+                foreach ($fields as $field) {
+                    $orScope->addCondition($field, 'like', '%' . $v . '%');
+                }
+                $andScope->addCondition($orScope);
+            }
+            $this->model->addCondition($andScope);
+        }
+        $this->quickSearch->initValue = $q;
+    }
+
+    #[\Override]
+    public function jsReload($args = [], $afterSuccess = null, array $apiConfig = []): JsExpressionable
+    {
+        return new JsReload($this->container, $args, $afterSuccess, $apiConfig);
+    }
+
+    /**
+     * Adds a new button into the action column on the right. For Crud this
+     * column will already contain "delete" and "edit" buttons.
+     *
+     * @param string|array<mixed>|View                       $button    Label text, object or seed for the Button
+     * @param JsExpressionable|JsCallbackSetWithRowIdClosure $action
+     * @param bool|\Closure<T of Model>(T): bool             $isEnabled
+     *
+     * @return View
+     */
+    public function addActionButton($button, $action = null, string $confirmMsg = '', $isEnabled = true)
+    {
+        return $this->getActionButtons()->addButton($button, $action, $confirmMsg, $isEnabled);
+    }
+
+    /**
+     * Add a button for executing a model action via an action executor.
+     *
+     * @return View
+     */
+    public function addExecutorButton(ExecutorInterface $executor, ?Button $button = null)
+    {
+        if ($button !== null) {
+            $this->add($button);
+        } else {
+            $button = $this->getExecutorFactory()->createTrigger($executor->getAction(), ExecutorFactory::TABLE_BUTTON);
+        }
+
+        $confirmation = $executor->getAction()->getConfirmation();
+        if (!$confirmation) {
+            $confirmation = '';
+        }
+
+        return $this->getActionButtons()->addButton($button, $executor, $confirmation, $executor->getAction()->enabled);
+    }
+
+    private function getActionButtons(): Table\Column\ActionButtons
+    {
+        if ($this->actionButtons === null) {
+            $this->actionButtons = $this->table->addColumn(null, $this->actionButtonsSeed);
+        }
+
+        return $this->actionButtons; // @phpstan-ignore return.type
+    }
+
+    /**
+     * Similar to addActionButton. Will add Button that when click will display
+     * a Dropdown menu.
+     *
+     * @param View|string                                    $view
+     * @param JsExpressionable|JsCallbackSetWithRowIdClosure $action
+     * @param bool|\Closure<T of Model>(T): bool             $isEnabled
+     *
+     * @return View
+     */
+    public function addActionMenuItem($view, $action = null, string $confirmMsg = '', $isEnabled = true)
+    {
+        return $this->getActionMenu()->addActionMenuItem($view, $action, $confirmMsg, $isEnabled);
+    }
+
+    /**
+     * @return View
+     */
+    public function addExecutorMenuItem(ExecutorInterface $executor)
+    {
+        $item = $this->getExecutorFactory()->createTrigger($executor->getAction(), ExecutorFactory::TABLE_MENU_ITEM);
+
+        // ConfirmationExecutor take care of showing the user confirmation, thus make it empty
+        $confirmation = !$executor instanceof ConfirmationExecutor ? $executor->getAction()->getConfirmation() : '';
+        if (!$confirmation) {
+            $confirmation = '';
+        }
+
+        return $this->getActionMenu()->addActionMenuItem($item, $executor, $confirmation, $executor->getAction()->enabled);
+    }
+
+    /**
+     * @return Table\Column\ActionMenu
+     */
+    private function getActionMenu()
+    {
+        if (!$this->actionMenu) {
+            $this->actionMenu = $this->table->addColumn(null, $this->actionMenuSeed);
+        }
+
+        return $this->actionMenu; // @phpstan-ignore return.type
+    }
+
+    /**
+     * An array of column name where filter is needed.
+     * Leave empty to include all column in grid.
+     *
+     * @param list<string> $names an array with the name of column
+     *
+     * @return $this
+     */
+    public function addFilterColumn(?array $names = null)
+    {
+        if (!$this->menu) {
+            throw new Exception('Unable to add Filter Column without Menu');
+        }
+        $this->menu->addItem(['Clear Filters'], new JsReload($this->table->reload, ['atk_clear_filter' => 1]));
+        $this->table->setFilterColumn($names);
+
+        return $this;
+    }
+
+    /**
+     * Add a dropdown menu to header column.
+     *
+     * @param string                                                $columnName the name of column where to add dropdown
+     * @param array<int|string, string>                             $items      the menu items to add
+     * @param \Closure(string): (JsExpressionable|View|string|void) $fx         the callback function to execute when an item is selected
+     * @param string                                                $icon       the icon
+     * @param string                                                $menuId     the menu ID return by callback
+     */
+    public function addDropdown(string $columnName, array $items, \Closure $fx, $icon = 'caret square down', $menuId = null): void
+    {
+        $column = $this->table->columns[$columnName];
+
+        if (!$menuId) {
+            $menuId = $columnName;
+        }
+
+        $column->addDropdown($items, static function (string $item) use ($fx) {
+            return $fx($item);
+        }, $icon, $menuId);
+    }
+
+    /**
+     * Add a popup to header column.
+     *
+     * @param string $columnName the name of column where to add popup
+     * @param Popup  $popup      popup view
+     * @param string $icon       the icon
+     *
+     * @return mixed
+     */
+    public function addPopup($columnName, $popup = null, $icon = 'caret square down')
+    {
+        $column = $this->table->columns[$columnName];
+
+        return $column->addPopup($popup, $icon);
+    }
+
+    /**
+     * Similar to addActionButton but when button is clicked, modal is displayed
+     * with the $title and $callback is executed.
+     *
+     * @param string|array<mixed>|View           $button
+     * @param string                             $title
+     * @param \Closure(View, mixed): void        $callback
+     * @param array<string, string>              $args      extra URL argument for callback
+     * @param bool|\Closure<T of Model>(T): bool $isEnabled
+     *
+     * @return View
+     */
+    public function addModalAction($button, $title, \Closure $callback, $args = [], $isEnabled = true)
+    {
+        return $this->getActionButtons()->addModal($button, $title, $callback, $this, $args, $isEnabled);
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    private function explodeSelectionValue(string $value): array
+    {
+        $res = [];
+        foreach ($value === '' ? [] : explode(',', $value) as $v) {
+            $res[] = $this->getApp()->uiPersistence->typecastAttributeLoadField($this->model->getIdField(), $v);
+        }
+
+        return $res;
+    }
+
+    private function setupOnMasterCheckboxChangeDisabled(View $item): void
+    {
+        $item->addClass('disabled');
+
+        $this->table->js(true, new JsExpression('atk.gridCheckboxHelper.onMasterCheckboxChange([], []);', [
+            $this->table,
+            new JsFunction(['$el'], [new JsExpression('$([]).toggleClass(\'disabled\', !$el.hasClass(\'checked\') && !$el.hasClass(\'indeterminate\'))', [$item])]),
+        ]));
+    }
+
+    /**
+     * Similar to addActionButton but apply to a multiple records selection and display in menu.
+     * When menu item is clicked, $callback is executed.
+     *
+     * @param string|array<mixed>|MenuItem                              $item
+     * @param \Closure(Jquery, non-empty-list<mixed>): JsExpressionable $callback
+     * @param array<string, string>                                     $args     extra URL argument for callback
+     *
+     * @return View
+     */
+    public function addBulkAction($item, \Closure $callback, $args = [])
+    {
+        $menuItem = $this->menu->addItem($item);
+        $this->setupOnMasterCheckboxChangeDisabled($menuItem);
+        $menuItem->on('click', static function (Jquery $j, array $ids) use ($callback) {
+            return $callback($j, $ids);
+        }, [
+            new JsCallbackLoadableValue($this->selection->jsChecked(), function ($v) {
+                return $this->explodeSelectionValue($v);
+            }),
+        ]);
+
+        return $menuItem;
+    }
+
+    /**
+     * Similar to addModalAction but apply to a multiple records selection and display in menu.
+     * When menu item is clicked, modal is displayed with the $title and $callback is executed.
+     *
+     * @param string|array<mixed>|MenuItem                $item
+     * @param string                                      $title
+     * @param \Closure(View, non-empty-list<mixed>): void $callback
+     * @param array<string, string>                       $args     extra URL argument for callback
+     *
+     * @return View
+     */
+    public function addModalBulkAction($item, $title, \Closure $callback, $args = [])
+    {
+        $modalDefaults = is_string($title) ? ['title' => $title] : []; // @phpstan-ignore function.alreadyNarrowedType
+
+        $modal = Modal::addTo($this->getOwner(), $modalDefaults);
+        $modal->set(function (View $t) use ($callback) {
+            $callback($t, $this->explodeSelectionValue($t->stickyGet($this->name) ?? ''));
+        });
+
+        $menuItem = $this->menu->addItem($item);
+        $this->setupOnMasterCheckboxChangeDisabled($menuItem);
+        $menuItem->on('click', $modal->jsShow(array_merge([$this->name => $this->selection->jsChecked()], $args)));
+
+        return $menuItem;
+    }
+
+    /**
+     * Get sortBy value from URL parameter.
+     */
+    public function getSortBy(): ?string
+    {
+        return $this->getApp()->tryGetRequestQueryParam($this->sortTrigger);
+    }
+
+    /**
+     * Apply ordering to the current model as per the sort parameters.
+     */
+    public function applySort(): void
+    {
+        if ($this->sortable === false) {
+            return;
+        }
+
+        $sortBy = $this->getSortBy();
+
+        if ($sortBy && $this->paginator) {
+            $this->paginator->addReloadArgs([$this->sortTrigger => $sortBy]);
+        }
+
+        $isDesc = false;
+        if ($sortBy && substr($sortBy, 0, 1) === '-') {
+            $isDesc = true;
+            $sortBy = substr($sortBy, 1);
+        }
+
+        $this->table->sortable = true;
+
+        if ($sortBy && isset($this->table->columns[$sortBy]) && $this->model->hasField($sortBy)) {
+            $this->model->setOrder($sortBy, $isDesc ? 'desc' : 'asc');
+            $this->table->sortBy = $sortBy;
+            $this->table->sortDirection = $isDesc ? 'desc' : 'asc';
+        }
+
+        $this->table->on(
+            'click',
+            'thead>tr>th.sortable',
+            new JsReload($this->container, [$this->sortTrigger => (new Jquery())->data('sort')])
+        );
+    }
+
+    /**
+     * @param list<string>|null $fields if null, then all "editable" fields will be added
+     */
+    public function setModel(Model $model, ?array $fields = null): void
+    {
+        $this->table->setModel($model, $fields);
+
+        $this->_setModel($model);
+
+        if ($this->searchFieldNames) {
+            $this->addQuickSearch($this->searchFieldNames, true);
+        }
+    }
+
+    /**
+     * Makes rows of this grid selectable by creating new column on the left with
+     * checkboxes.
+     *
+     * @return Table\Column\Checkbox
+     */
+    public function addSelection()
+    {
+        $this->selection = $this->table->addColumn(null, [Table\Column\Checkbox::class]);
+
+        // move last column to the beginning in table column array
+        array_unshift($this->table->columns, array_pop($this->table->columns));
+
+        return $this->selection;
+    }
+
+    /**
+     * Add column with drag handler on each row.
+     * Drag handler allow to reorder table via drag and drop.
+     *
+     * @return Table\Column
+     */
+    public function addDragHandler()
+    {
+        $handler = $this->table->addColumn(null, [Table\Column\DragHandler::class]);
+
+        // move last column to the beginning in table column array
+        array_unshift($this->table->columns, array_pop($this->table->columns));
+
+        return $handler;
+    }
+
+    private function setModelLimitFromPaginator(): void
+    {
+        $this->paginator->setTotal((int) ceil($this->model->executeCountQuery() / $this->ipp));
+        $this->model->setLimit($this->ipp, ($this->paginator->page - 1) * $this->ipp);
+    }
+
+    #[\Override]
+    protected function renderView(): void
+    {
+        // take care of sorting
+        if (!$this->table->jsPaginator) {
+            $this->applySort();
+        }
+
+        parent::renderView();
+    }
+
+    #[\Override]
+    protected function recursiveRender(): void
+    {
+        // bind with paginator
+        if ($this->paginator) {
+            $this->setModelLimitFromPaginator();
+        }
+
+        if ($this->quickSearch instanceof JsSearch) {
+            $sortBy = $this->getSortBy();
+            if ($sortBy) {
+                $this->container->js(true, $this->quickSearch->js()->atkJsSearch('setUrlArgs', [$this->sortTrigger, $sortBy]));
+            }
+        }
+
+        parent::recursiveRender();
+    }
+
+    /**
+     * Proxy function for Table::jsRow().
+     *
+     * @return Jquery
+     */
+    public function jsRow(): JsExpressionable
+    {
+        return $this->table->jsRow();
+    }
+}

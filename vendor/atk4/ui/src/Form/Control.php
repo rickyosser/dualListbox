@@ -1,0 +1,168 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Atk4\Ui\Form;
+
+use Atk4\Data\Field;
+use Atk4\Data\Model;
+use Atk4\Data\Model\EntityFieldPair;
+use Atk4\Ui\Exception;
+use Atk4\Ui\Form;
+use Atk4\Ui\Js\Jquery;
+use Atk4\Ui\Js\JsExpression;
+use Atk4\Ui\Js\JsExpressionable;
+use Atk4\Ui\View;
+use Atk4\Ui\ViewWithContent;
+
+/**
+ * Provides generic functionality for a form control.
+ *
+ * @phpstan-type JsCallbackSetWithValueClosure \Closure(Jquery, mixed): (JsExpressionable|View|string|void)
+ */
+abstract class Control extends ViewWithContent
+{
+    /** @var Form|null to which this field belongs */
+    public ?View $form = null;
+
+    /** @var EntityFieldPair<Model, Field>|null */
+    public ?EntityFieldPair $entityField = null;
+
+    /** @var string */
+    public $controlClass = '';
+
+    /** @var bool Whether you need this field to be rendered wrap in a form layout or as his */
+    public bool $layoutWrap = true;
+
+    /** @var bool rendered or not input label in generic Form\Layout template. */
+    public $renderLabel = true;
+
+    /** @var string Specify width for Fomantic-UI grid. For "four wide" use 'four'. */
+    public $width;
+
+    /**
+     * Caption is a text that must appear somewhere nearby the field. For a form with layout, this
+     * will typically place caption above the input field, but for checkbox this may appear next to the
+     * checkbox itself. If Form Layout does not have captions above the input field, then caption
+     * will appear as a placeholder of the input fields and it may also appear as a tooltip.
+     *
+     * Caption is usually specified by a model.
+     *
+     * @var string|null
+     */
+    public $caption;
+
+    /**
+     * Placed as a pointing label below the field. This only works when Form\Control appears in a form. You can also
+     * set this to object, such as \Atk4\Ui\Text otherwise HTML characters are escaped.
+     *
+     * @var string|View|array<mixed>
+     */
+    public $hint;
+
+    /** Disabled field is not editable and will not be submitted. */
+    public bool $disabled = false;
+
+    /** Read-only field is not editable, but will be submitted. */
+    public bool $readOnly = false;
+
+    #[\Override]
+    protected function init(): void
+    {
+        parent::init();
+
+        if ($this->form !== null && $this->entityField !== null) {
+            if (isset($this->form->controls[$this->entityField->getFieldName()])) {
+                throw (new Exception('Form field already exists'))
+                    ->addMoreInfo('name', $this->entityField->getFieldName());
+            }
+            $this->form->controls[$this->entityField->getFieldName()] = $this;
+        }
+    }
+
+    /**
+     * Sets the value of this field. If field is a part of the form and is associated with
+     * the model, then the model's value will also be affected.
+     *
+     * @param mixed $value
+     */
+    #[\Override]
+    public function set($value = null)
+    {
+        if ($this->entityField !== null) {
+            $this->entityField->set($value);
+        } else {
+            $this->content = $value;
+        }
+
+        return $this;
+    }
+
+    public function getInputValue(): ?string
+    {
+        return $this->entityField !== null
+            ? $this->getApp()->uiPersistence->typecastSaveField($this->entityField->getField(), $this->entityField->get())
+            : $this->content;
+    }
+
+    public function setInputValue(string $value): void
+    {
+        $this->set($this->getApp()->uiPersistence->typecastLoadField($this->entityField->getField(), $value));
+    }
+
+    #[\Override]
+    protected function renderView(): void
+    {
+        // it only makes sense to have "name" property inside a field if used inside a form
+        if ($this->form !== null) {
+            $this->template->trySet('name', $this->shortName);
+        }
+
+        parent::renderView();
+    }
+
+    #[\Override]
+    protected function renderTemplateToHtml(): string
+    {
+        $output = parent::renderTemplateToHtml();
+
+        $form = $this->getClosestOwner(Form::class);
+
+        return $form !== null ? $form->fixOwningFormAttrInRenderedHtml($output) : $output;
+    }
+
+    /**
+     * Shorthand method for on('change') event.
+     * Some input fields, like Calendar, could call this differently.
+     *
+     * If $action is JsExpressionable, then it will execute it instantly.
+     * If $action is callback, then it'll make additional request to webserver.
+     *
+     * Examples:
+     * $control->onChange(new JsExpression('console.log(\'changed\')'));
+     * $control->onChange(new JsExpression('$(this).parents(\'.form\').form(\'submit\')'));
+     *
+     * @param JsExpressionable|JsCallbackSetWithValueClosure|array{JsCallbackSetWithValueClosure} $action
+     * @param array<int|string, mixed>                                                            $defaults
+     */
+    public function onChange($action, array $defaults = []): void
+    {
+        $this->on('change', '#' . $this->name . '_input', $action, $defaults);
+    }
+
+    /**
+     * Method similar to View::js() however will adjust selector
+     * to target the "input" element.
+     *
+     * $field->jsInput(true)->val(123);
+     *
+     * @param bool|string                                     $when
+     * @param ($when is false ? null : JsExpressionable|null) $action
+     *
+     * @return ($action is null ? Jquery : null)
+     */
+    public function jsInput($when = false, $action = null): ?JsExpressionable
+    {
+        return $this->js($when, $action, '#' . $this->name . '_input');
+    }
+}

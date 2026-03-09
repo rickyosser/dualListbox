@@ -1,0 +1,349 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Atk4\Ui;
+
+use Atk4\Core\Factory;
+use Atk4\Data\Model;
+use Atk4\Ui\UserAction\ExecutorFactory;
+use Atk4\Ui\UserAction\ExecutorInterface;
+use Atk4\Ui\UserAction\SharedExecutor;
+use Atk4\Ui\View\EntityTrait;
+
+/**
+ * Card can contain arbitrary information.
+ *
+ * Card contains one main CardSection for adding content
+ * but it can contains other CardSection using addSection method.
+ *
+ * Each section can have it's own model, field to be displayed has
+ * field value, field label, field value or as table.
+ *
+ * Card also has an extra content section which is formatted
+ * separately from Section content. Extra content may also have
+ * model field display.
+ *
+ * Multiple model can be used to display various content on each card section.
+ * When using model or models, the first model that get set via setEntity method
+ * will have it's idField set as data-id HTML attribute for the card. Thus making
+ * the ID available via javascript (new Jquery())->data('id')
+ */
+class Card extends View
+{
+    use EntityTrait {
+        setEntity as private _setEntity;
+    }
+
+    public $ui = 'card atk-card';
+
+    public $defaultTemplate = 'card.html';
+
+    /** @var View|null A View that hold the image. */
+    public $imageContainer;
+
+    /** @var string Card box type. */
+    public $cardCss = 'segment';
+
+    /** @var string|Image|null A path to the image src or the image view. */
+    public $image;
+
+    /** @var CardSection|null The main card section of this card */
+    public $section;
+
+    /** @var array<mixed> The CardSection default seed. */
+    public $cardSectionSeed = [CardSection::class];
+
+    /** @var View|null The extra content view container for the card. */
+    public $extraContainer;
+
+    /** @var string|View|null A description inside the Card content. */
+    public $description;
+
+    /** @var array<mixed>|Button|null */
+    public $buttons;
+
+    /** @var bool How buttons are display inside button container */
+    public $hasFluidButton = true;
+
+    /** @var View|null */
+    public $buttonContainer;
+
+    /** @var bool Display model field as table inside card holder content */
+    public $useTable = false;
+
+    /** @var bool Use Field label with value data. */
+    public $useLabel = false;
+
+    #[\Override]
+    protected function init(): void
+    {
+        parent::init();
+
+        $this->addClass($this->cardCss);
+        if ($this->imageContainer) {
+            $this->add($this->imageContainer, 'Image');
+        }
+
+        if ($this->description) {
+            $this->addDescription($this->description);
+        }
+
+        if ($this->image) {
+            $this->addImage($this->image);
+        }
+
+        if ($this->buttons) {
+            $this->addButton($this->buttons);
+        }
+    }
+
+    /**
+     * Get main section of this card.
+     *
+     * @return CardSection
+     */
+    public function getSection()
+    {
+        if (!$this->section) {
+            $this->section = CardSection::addToWithCl($this, array_merge($this->cardSectionSeed, ['card' => $this]));
+        }
+
+        return $this->section;
+    }
+
+    /**
+     * Get the image container of this card.
+     *
+     * @return View
+     */
+    public function getImageContainer()
+    {
+        if (!$this->imageContainer) {
+            $this->imageContainer = View::addTo($this, ['class' => ['image']], ['Image']);
+        }
+
+        return $this->imageContainer;
+    }
+
+    /**
+     * Get the ExtraContainer of this card.
+     *
+     * @return View
+     */
+    public function getExtraContainer()
+    {
+        if (!$this->extraContainer) {
+            $this->extraContainer = View::addTo($this, ['class' => ['extra content']], ['ExtraContent']);
+        }
+
+        return $this->extraContainer;
+    }
+
+    /**
+     * Get the button container of this card.
+     *
+     * @return View
+     */
+    public function getButtonContainer()
+    {
+        if (!$this->buttonContainer) {
+            $this->buttonContainer = $this->addExtraContent(new View(['ui' => 'buttons']));
+            $this->getButtonContainer()->addClass('wrapping');
+            if ($this->hasFluidButton) {
+                $this->getButtonContainer()->addClass('fluid');
+            }
+        }
+
+        return $this->buttonContainer;
+    }
+
+    /**
+     * Add Content to card.
+     *
+     * @return View
+     */
+    public function addContent(View $view)
+    {
+        return $this->getSection()->add($view);
+    }
+
+    /**
+     * @param list<string>|null $fields
+     */
+    public function setEntity(Model $entity, ?array $fields = null): void
+    {
+        $entity->assertIsLoaded();
+
+        $this->_setEntity($entity);
+
+        if ($fields === null) {
+            $fields = array_keys($this->entity->getFields(['editable', 'visible']));
+        }
+
+        $this->template->trySet('dataId', $this->getApp()->uiPersistence->typecastAttributeSaveField($this->entity->getIdField(), $this->entity->getId()));
+
+        ViewWithContent::addTo($this->getSection(), [$entity->getTitle(), 'class.header' => true]);
+        $this->getSection()->addFields($entity, $fields, $this->useLabel, $this->useTable);
+    }
+
+    /**
+     * Add a CardSection to this card.
+     *
+     * @param list<string> $fields
+     *
+     * @return View
+     */
+    public function addSection(?string $title = null, ?Model $entity = null, ?array $fields = null, bool $useTable = false, bool $useLabel = false)
+    {
+        $section = CardSection::addToWithCl($this, array_merge($this->cardSectionSeed, ['card' => $this]), ['Section']);
+        if ($title) {
+            ViewWithContent::addTo($section, [$title, 'class.header' => true]);
+        }
+
+        if ($entity !== null && $fields) {
+            $section->setEntity($entity);
+            $section->addFields($entity, $fields, $useTable, $useLabel);
+        }
+
+        return $section;
+    }
+
+    /**
+     * Execute Model user action via button in Card.
+     *
+     * @param array<int|string, mixed> $args
+     *
+     * @return $this
+     */
+    public function addClickAction(Model\UserAction $action, ?Button $button = null, array $args = [], ?string $confirm = null): self
+    {
+        $button = $this->addButton($button ?? $this->getExecutorFactory()->createTrigger($action, ExecutorFactory::CARD_BUTTON));
+
+        $cardDeck = $this->getClosestOwner(CardDeck::class);
+
+        $defaults = [];
+
+        // setting arg for model ID
+        // $args[0] is consider to hold a model ID, i.e. as a JS expression
+        if ($this->entity !== null && $this->entity->isLoaded() && !isset($args[0])) {
+            $defaults[] = $this->entity->getId();
+            if ($cardDeck === null && !$action->isOwnerEntity()) {
+                $action = $action->getActionForEntity($this->entity);
+            }
+        }
+
+        if ($args !== []) {
+            $defaults['args'] = $args;
+        }
+
+        if ($confirm) {
+            $defaults['confirm'] = $confirm;
+        }
+
+        if ($cardDeck !== null) {
+            // mimic https://github.com/atk4/ui/blob/3c592b8f10/src/Crud.php#L140
+            // based on https://github.com/atk4/ui/blob/3c592b8f10/src/UserAction/SharedExecutorsContainer.php#L24
+            $isNew = !isset($cardDeck->sharedExecutorsContainer->sharedExecutors[$action->shortName]);
+            if ($isNew) {
+                $ex = $cardDeck->sharedExecutorsContainer->getExecutorFactory()->createExecutor($action, $cardDeck->sharedExecutorsContainer);
+
+                $ex->onHook(UserAction\BasicExecutor::HOOK_AFTER_EXECUTE, \Closure::bind(static function (ExecutorInterface $ex, $return, $id) use ($cardDeck, $action) { // @phpstan-ignore method.notFound
+                    return $cardDeck->jsExecute($return, $action);
+                }, null, CardDeck::class));
+
+                $ex->executeModelAction();
+                $cardDeck->sharedExecutorsContainer->sharedExecutors[$action->shortName] = new SharedExecutor($ex);
+            }
+        }
+
+        if ($action->enabled === false) {
+            $button->addClass('disabled');
+        }
+
+        $button->on('click', $cardDeck !== null ? $cardDeck->sharedExecutorsContainer->getExecutor($action) : $action, $defaults);
+
+        return $this;
+    }
+
+    /**
+     * Set extra content using model field.
+     *
+     * @param list<string> $fields
+     */
+    public function addExtraFields(Model $entity, array $fields, ?string $glue = null): void
+    {
+        // display extra field in line
+        if ($glue) {
+            $extra = '';
+            foreach ($fields as $field) {
+                $extra .= $entity->get($field) . $glue;
+            }
+            $extra = rtrim($extra, $glue);
+            $this->addExtraContent(new ViewWithContent([$extra, 'ui' => 'basic fitted segment']));
+        } else {
+            foreach ($fields as $field) {
+                $this->addExtraContent(new ViewWithContent([$entity->get($field), 'class.ui basic fitted segment' => true]));
+            }
+        }
+    }
+
+    /**
+     * Add Description to main card content.
+     *
+     * @param string|View $description
+     *
+     * @return View
+     */
+    public function addDescription($description)
+    {
+        return $this->getSection()->addDescription($description);
+    }
+
+    /**
+     * Add Extra content to the Card.
+     * Extra content is added at the bottom of the card.
+     *
+     * @return View
+     */
+    public function addExtraContent(View $view)
+    {
+        return $this->getExtraContainer()->add($view);
+    }
+
+    /**
+     * Add image to card.
+     *
+     * @param string|Image $img
+     *
+     * @return View
+     */
+    public function addImage($img)
+    {
+        if (is_string($img)) {
+            $img = Image::addTo($this->getImageContainer(), [$img]);
+        } else {
+            $img = $this->getImageContainer()->add($img);
+        }
+
+        return $img;
+    }
+
+    /**
+     * Add button to card.
+     *
+     * @param Button|array<mixed> $seed
+     *
+     * @return View
+     */
+    public function addButton($seed)
+    {
+        if (!is_object($seed)) {
+            $seed = Factory::factory([Button::class], $seed);
+        }
+
+        $button = $this->getButtonContainer()->add($seed);
+
+        return $button;
+    }
+}

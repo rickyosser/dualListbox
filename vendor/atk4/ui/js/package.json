@@ -1,0 +1,61 @@
+{
+    "name": "atkjs-ui",
+    "version": "1.0.0",
+    "description": "Agile Toolkit Javascript library.",
+    "main": "../public/js/atkjs-ui.js",
+    "scripts": {
+        "build": "webpack --env development && webpack --env production",
+        "dev": "webpack --progress --watch --env development",
+        "profile": "webpack --env production --profile --json > webpack-bundle-profile.local.json",
+        "analyze-profile": "webpack-bundle-analyzer webpack-bundle-profile.local.json",
+        "lint": "eslint --ext .js,.vue . && stylelint \"../public/**/*.less\" && prettier --config .prettierrc.js --log-level warn \"../public/**/*.less\" --check",
+        "lint-fix": "eslint --ext .js,.vue . --fix && stylelint \"../public/**/*.less\" --fix && prettier --config .prettierrc.js --log-level warn \"../public/**/*.less\" --write"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/atk4/ui.git"
+    },
+    "author": "Agile Toolkit",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/atk4/ui/issues"
+    },
+    "homepage": "https://atk4.org/",
+    "dependencies": {
+        "@babel/runtime": "^7.22.3",
+        "column-resizer": "^1.4.0",
+        "core-js": "^3.30.2",
+        "lodash": "github:lodash/lodash#2da024c3b4",
+        "mitt": "^3.0.0",
+        "vue": "^3.3.4",
+        "vue-flatpickr-component": "^12.0.0",
+        "vue-fomantic-ui": "^0.15.1",
+        "vue-query-builder": "github:TheAustinG/vue-query-builder#2f62fa09ea"
+    },
+    "devDependencies": {
+        "@babel/cli": "^7.21.5",
+        "@babel/core": "^7.22.1",
+        "@babel/plugin-transform-runtime": "^7.22.2",
+        "@babel/preset-env": "^7.22.2",
+        "@internal/eslint-plugin": "file:.eslint",
+        "babel-loader": "^9.1.2",
+        "css-loader": "^6.8.1",
+        "eslint": "^8.41.0",
+        "eslint-config-airbnb-base": "^15.0.0",
+        "eslint-import-resolver-webpack": "^0.13.8",
+        "eslint-plugin-import": "^2.27.5",
+        "eslint-plugin-jsdoc": "^48.0.4",
+        "eslint-plugin-unicorn": "^50.0.1",
+        "eslint-plugin-vue": "^9.14.1",
+        "postcss-less": "^6.0.0",
+        "prettier": "^3.2.4",
+        "source-map-loader": "^5.0.0",
+        "style-loader": "^3.3.3",
+        "stylelint": "^16.2.0",
+        "stylelint-config-standard": "^36.0.0",
+        "terser-webpack-plugin": "^5.3.9",
+        "vue-loader": "^17.1.2",
+        "webpack": "^5.84.1",
+        "webpack-cli": "^5.1.1"
+    }
+}

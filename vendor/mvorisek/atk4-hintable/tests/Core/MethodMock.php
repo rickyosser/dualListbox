@@ -1,0 +1,32 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Mvorisek\Atk4\Hintable\Tests\Core;
+
+use Mvorisek\Atk4\Hintable\Core\MethodTrait;
+
+class MethodMock
+{
+    use MethodTrait;
+
+    private function priv(): string // @phpstan-ignore method.unused
+    {
+        return __METHOD__;
+    }
+
+    public function pub(): string
+    {
+        return __METHOD__;
+    }
+
+    private static function privStat(): string // @phpstan-ignore method.unused
+    {
+        return __METHOD__;
+    }
+
+    public static function pubStat(): string
+    {
+        return __METHOD__;
+    }
+}

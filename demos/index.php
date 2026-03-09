@@ -11,11 +11,12 @@ use Atk4\Ui\Lister;
 use Atk4\Ui\View;
 use Atk4\Ui\Icon;
 use Atk4\Ui\Header;
+use Atk4\Ui\Form\Control\Listbox;
 
 require_once __DIR__ . '/init-app.php';
 
 
-$app = new myApp($dsn);
+$app = new myApp();
 
 
 $app->initLayout([Layout\Maestro::class]);
@@ -23,7 +24,7 @@ $app->requireCss('../public/css/dualListbox.css');
 
 
 $array1 = [
-    ['title' => 'License 1'],
+    ['id' => 'active1', 'title' => 'License 1'],
     ['id' => 'active2', 'title' => 'License 2'],
     ['id' => 'active3', 'title' => 'License 3'],
 ];
@@ -46,7 +47,7 @@ Lister::addTo($seg, [
 
 $c = $columns->addColumn(1);
 Header::addTo($c, [''])->addClass('center aligned');
-Icon::addTo($c, ['arrows alternate horizontal'])->addClass('big')->setAttr(['style' => 'margin-top:300%;']);
+Icon::addTo($c, ['arrows alternate horizontal'])->addClass('big')->setAttr(['style' => 'margin-top:150%;']);
 
 $c = $columns->addColumn(5);
 Header::addTo($c, ['Inactive'])->addClass('center aligned');
@@ -56,3 +57,11 @@ Lister::addTo($seg, [
     'defaultTemplate' => 'lister.html',
     'ipp' => 2
 ])->setSource($array2);
+
+
+Listbox::addTo($app, [
+    'name' => 'box1',
+    'size' => 4,
+    'values' => $array1        
+]);
+    

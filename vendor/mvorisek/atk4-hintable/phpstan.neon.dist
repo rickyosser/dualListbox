@@ -1,0 +1,94 @@
+includes:
+    - phar://phpstan.phar/conf/bleedingEdge.neon
+    # remove once https://github.com/phpstan/extension-installer/issues/36 is fixed
+    - phpstan-ext.neon
+
+services:
+    -
+        factory: Mvorisek\Atk4\Hintable\Phpstan\SeedDmrtExtension(Mvorisek\Atk4\Hintable\Tests\Phpstan\SeedDemo\Bodyshop, acceptCar, 1)
+        tags:
+            - phpstan.broker.dynamicMethodReturnTypeExtension
+    -
+        factory: Mvorisek\Atk4\Hintable\Phpstan\SeedDmrtExtension(Mvorisek\Atk4\Hintable\Tests\Phpstan\SeedDemo\Car, fromSeed, 0)
+        tags:
+            - phpstan.broker.dynamicStaticMethodReturnTypeExtension
+
+parameters:
+    level: 6
+    checkMissingOverrideMethodAttribute: true
+    paths:
+        - .
+    excludePaths:
+        - vendor
+
+    ignoreErrors:
+        # relax strict rules
+        - '~^Variable (static )?(property access|method call) on .+\.~'
+
+        # TODO custom PHPStan error is missing an identifier
+        -
+            path: 'src/Phpstan/AssertSamePhpstanTypeRule.php'
+            identifier: return.type
+            message: '~^Method Mvorisek\\Atk4\\Hintable\\Phpstan\\AssertSamePhpstanTypeRule::processNode\(\) should return list<PHPStan\\Rules\\IdentifierRuleError> but returns array\{PHPStan\\Rules\\NonIgnorableRuleError\}\.$~'
+            count: 3
+
+        # TODO https://github.com/phpstan/phpstan/issues/8311#issuecomment-1509916189
+        -
+            path: 'src/Phpstan/AssertSamePhpstanTypeRule.php'
+            identifier: phpstanApi.instanceofType
+            message: '~^Doing instanceof PHPStan\\Type\\Constant\\ConstantStringType is error-prone and deprecated\. Use Type::getConstantStrings\(\) instead\.$~'
+            count: 1
+        -
+            path: 'src/Phpstan/SeedDmrtExtension.php'
+            identifier: phpstanApi.instanceofType
+            message: '~^Doing instanceof PHPStan\\Type\\IntersectionType is error-prone and deprecated\.$~'
+            count: 1
+        -
+            path: 'src/Phpstan/SeedDmrtExtension.php'
+            identifier: phpstanApi.instanceofType
+            message: '~^Doing instanceof PHPStan\\Type\\ObjectType is error-prone and deprecated\. Use Type::isObject\(\) or Type::getObjectClassNames\(\) instead\.$~'
+            count: 1
+        -
+            path: 'src/Phpstan/SeedDmrtExtension.php'
+            identifier: phpstanApi.instanceofType
+            message: '~^Doing instanceof PHPStan\\Type\\Constant\\ConstantArrayType is error-prone and deprecated\. Use Type::getConstantArrays\(\) instead\.$~'
+            count: 1
+        -
+            path: 'src/Phpstan/SeedDmrtExtension.php'
+            identifier: phpstanApi.instanceofType
+            message: '~^Doing instanceof PHPStan\\Type\\Constant\\ConstantStringType is error-prone and deprecated\. Use Type::getConstantStrings\(\) instead\.$~'
+            count: 1
+        -
+            path: 'src/Phpstan/SeedDmrtExtension.php'
+            identifier: phpstanApi.instanceofType
+            message: '~^Doing instanceof PHPStan\\Type\\Generic\\GenericClassStringType is error-prone and deprecated\. Use Type::isClassStringType\(\) and Type::getClassStringObjectType\(\) instead\.$~'
+            count: 1
+
+        # https://github.com/phpstan/phpstan/issues/4945
+        # https://github.com/phpstan/phpstan/issues/6175
+        -
+            path: 'src/Core/MethodTrait.php'
+            identifier: return.type
+            message: '~^Method Mvorisek\\Atk4\\Hintable\\Tests\\Core\\MethodMock::(methodName|methodNameFull|methodClosure|methodClosureProtected)\(\) should return Mvorisek\\Atk4\\Hintable\\Core\\MagicMethod<static\(Mvorisek\\Atk4\\Hintable\\Tests\\Core\\MethodMock\), (string|Closure)> but returns Mvorisek\\Atk4\\Hintable\\Core\\MagicMethod<\$this\(Mvorisek\\Atk4\\Hintable\\Tests\\Core\\MethodMock\), (string|Closure)>\.$~'
+            count: 4
+        -
+            path: 'src/Core/PropTrait.php'
+            identifier: return.type
+            message: '~^Method Mvorisek\\Atk4\\Hintable\\Tests\\Core\\PropMock::(propName|propNameFull)\(\) should return Mvorisek\\Atk4\\Hintable\\Core\\MagicProp<static\(Mvorisek\\Atk4\\Hintable\\Tests\\Core\\PropMock\), string> but returns Mvorisek\\Atk4\\Hintable\\Core\\MagicProp<\$this\(Mvorisek\\Atk4\\Hintable\\Tests\\Core\\PropMock\), string>\.$~'
+            count: 2
+
+        -
+            path: 'src/Phpstan/AssertSamePhpstanTypeRule.php'
+            identifier: phpstanApi.runtimeReflection
+            message: '~^Function class_uses\(\) is a runtime reflection concept that might not work in PHPStan because it uses fully static reflection engine\. Use objects retrieved from ReflectionProvider instead\.$~'
+            count: 1
+        -
+            path: 'src/Data/HintableModelTrait.php'
+            identifier: trait.unused
+            message: '~^Trait Mvorisek\\Atk4\\Hintable\\Data\\HintableModelTrait is used zero times and is not analysed\.$~'
+            count: 1
+        -
+            path: 'src/Phpstan/SeedDmrtExtension.php'
+            identifier: phpstanApi.runtimeReflection
+            message: '~^Creating new ReflectionMethod is a runtime reflection concept that might not work in PHPStan because it uses fully static reflection engine\. Use objects retrieved from ReflectionProvider instead\.$~'
+            count: 1
