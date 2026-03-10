@@ -1,9 +1,16 @@
-
 <div {$attributes}>
-{$BeforeInput}{$AfterBeforeInput}
-{$Input}
-<select size="{$size}" {$multiple} {$disabled} style="width: {$width};">
-{Ítem}
-  <option value="{$value}">{$Title}</option>
-{/Item}
+  {$BeforeInput}{$AfterBeforeInput}
+  {$Input}
+    <select name="{$label}" id="{$name}" {$multiple} size="{$size}" {$disabled}>
+      {rows}
+      {row}
+      <option value="{$value}" id="{$row_id}" {$selected}>{$title}</option>
+      {/row}
+      {/rows}
+      {empty}
+      <option value="none" id="none">xx{$no-record}</option>
+      {/empty}
+    </select>
+  </label>
+  {$AfterInput}{$AfterAfterInput}
 </div>

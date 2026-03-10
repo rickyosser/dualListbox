@@ -1,16 +1,12 @@
-
-<div {$attributes}>{rows}
-  <div class="ui middles aligned selection list">{row}
-    <div class="item"><i class="{$icon} icon"></i>
-      <div class="content"><a class="content" href="{$_href}">{$_title}</a>
-      </div>
-    </div>{/row}
-  </div>
+<div {$attributes}>{rows} 
+  <select name="{$name}" id="{$id}" {$multiple} size="{$size}" {$disabled}>{row}
+    <option value="{$value}" {$selected}>{$title}</option>
+    {/row}
+  </select>
   {empty}
-  <div class="item">
-    <div class="content">
-      <div class="description">{$no_records}</div>
-    </div>
-  </div>{/empty}
-</div>{/rows}
+  <select name="{$name}" id="{$id}" {$multiple} size="{$size}" {$disabled}>
+    <option value="{$value}" {$selected}>{$no_records}</option>
+  </select>
+  {/empty}
+  {/rows}
 </div>

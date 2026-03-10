@@ -4,21 +4,36 @@ declare(strict_types=1);
 
 namespace Atk4\Ui\Form\Control;
 
+use Atk4\Core\HookTrait;
 use Atk4\Data\Model;
+use Atk4\Ui\View;
 use Atk4\Ui\View\ModelTrait;
-use Atk4\Ui\HtmlTemplate;
+use Atk4\Ui\Js\Jquery;
 
 class Listbox extends Input
 {
+    use HookTrait;
     use ModelTrait;
 
-    public $defaultTemplate = 'form/control/dropdown.html';
+    public const HOOK_BEFORE_ROW = self::class . '@beforeRow';
+    public const HOOK_AFTER_ROW = self::class . '@afterRow';
 
-    public string $inputType = 'select';
+    public $defaultTemplate = 'form/control/listbox.html';
 
-    /** @var int Text area vertical size */
+    public string $inputType = 'hidden';
+
+    /** @var string Label of Listbox */
+    public $label = '';
+
+    /** @var string Label alignment */
+    public $label_align = 'center';
+
+    /** @var string Label weight */
+    public $label_weight = 'bold';
+
+    /** @var int Number of rows in Listbox */
     public $size = 5;
-    
+
     /**
      * Values need for the dropdown.
      * Note: Now possible to display icon with value in dropdown by passing the icon class with your values.
@@ -43,132 +58,170 @@ class Listbox extends Input
     public $multiple = false;
 
     /**
-     * Here a custom function for creating the HTML of each dropdown option
-     * can be defined. The function gets each row of the model/values property as first parameter.
-     * if used with $values property, gets the key of this element as second parameter.
-     * Must return an array with at least 'value' and 'title' elements set.
-     * Use additional 'icon' element to add an icon to this row.
+     * Listbox repeats part of it's template. This property will contain
+     * the repeating part. Clones from {row}. If your template does not
+     * have {row} tag, then entire template will be repeated.
      *
-     * Example 1 with Model: Title in Uppercase
-     * function (Model $row) {
-     *     return [
-     *         'title' => mb_strtoupper($row->getTitle()),
-     *     ];
-     *  }
-     *
-     * Example 2 with Model: Add an icon
-     * function (Model $row) {
-     *     return [
-     *         'title' => $row->getTitle(),
-     *         'icon' => $row->get('amount') > 1000 ? 'money' : '',
-     *     ];
-     * }
-     *
-     * Example 3 with Model: Combine Title from model fields
-     * function (Model $row) {
-     *     return [
-     *         'title' => $row->getTitle() . ' (' . $row->get('title2') . ')',
-     *     ];
-     * }
-     *
-     * Example 4 with $values property Array:
-     * function (string $value, $key) {
-     *     return [
-     *        'value' => $key,
-     *        'title' => mb_strtoupper($value),
-     *        'icon' => str_contains($value, 'Month') ? 'calendar' : '',
-     *     ];
-     * }
-     *
-     * @var \Closure<T of Model>(T): array{title: mixed, icon?: mixed}|\Closure(mixed, array-key): array{value: mixed, title: mixed, icon?: mixed}
+     * @var HtmlTemplate
      */
-    public ?\Closure $renderRowFunction = null;
+    public $tRow;
 
-    /** Subtemplate for a single select option. */
-    protected HtmlTemplate $_tItem;
+    /** @var HtmlTemplate|null Lister use this part of template in case there are no elements in it. */
+    public $tEmpty;
 
-    /** Subtemplate for an icon for a single dropdown item. */
-    protected HtmlTemplate $_tIcon;
+    /** Current row entity */
+    public ?Model $currentRow = null;
 
     #[\Override]
     protected function init(): void
     {
         parent::init();
 
-        $this->_tItem = $this->template->cloneRegion('Item');
-        $this->template->del('Item');
-        //$this->_tIcon = $this->_tItem->cloneRegion('Icon');
-        //$this->_tItem->del('Icon');
+        //atk4_print_r($this->template);
+        // empty row template
+        if ($this->template->hasTag('empty')) {
+            $this->tEmpty = $this->template->cloneRegion('empty');
+            $this->template->del('empty');
+        }
+
+        // data row template
+        if ($this->template->hasTag('row')) {
+            $this->tRow = $this->template->cloneRegion('row');
+            $this->template->del('rows');
+        } else {
+            $this->tRow = clone $this->template;
+            $this->template->del('_top');
+        }
     }
 
     #[\Override]
-    public function getInputTag(): string
+    public function getInputValue(): ?string
     {
-        return $this->getApp()->getTag('select', array_merge([
-            'name' => $this->shortName,
-            'size' => $this->size,
-            'multiple' => $this->multiple,
-            'id' => $this->name . '_input',
-            'disabled' => $this->disabled,
-            //'readonly' => $this->readOnly && !$this->disabled,
-        ], $this->inputAttr), $this->getInputValue() ?? '');
+        // dropdown input tag accepts CSV formatted list of IDs
+        return $this->entityField !== null
+            ? ($this->multiple && $this->entityField->getField()->type === 'json' && is_array($this->entityField->get())
+                ? implode(',', $this->entityField->get())
+                : $this->getApp()->uiPersistence->typecastAttributeSaveField($this->entityField->getField(), $this->entityField->get()))
+            : parent::getInputValue();
     }
-    
-    protected function htmlRenderValue(): void
+
+    #[\Override]
+    public function setInputValue(string $value): void
     {
-        // model set? use this, else values property
-        if ($this->model !== null) {
-            if ($this->renderRowFunction) {
-                foreach ($this->model as $row) {
-                    $this->_addCallBackRow($row);
-                }
-            } else {
-                // for standard model rendering, only load ID and title field
-                $this->model->setOnlyFields([$this->model->titleField, $this->model->idField]);
-                $this->_renderItemsForModel();
-            }
-        } else {
-            if ($this->renderRowFunction) {
-                foreach ($this->values as $key => $value) {
-                    $this->_addCallBackRow($value, $key);
-                }
-            } else {
-                $this->_renderItemsForValues();
-            }
+        if ($this->entityField !== null && $this->multiple && $this->entityField->getField()->type === 'string') {
+            $value = $this->getApp()->encodeJson(explode(',', $value));
         }
+
+        parent::setInputValue($value);
     }
-    
+
+    /** @var int This will count how many rows are rendered. Needed for JsPaginator for example. */
+    protected $_renderedRowsCount = 0;
+
     #[\Override]
     protected function renderView(): void
     {
-        $this->htmlRenderValue();
-        $this->getInputTag();
+        if (!$this->template) {
+            throw new Exception('Listbox requires you to specify template explicitly');
+        }
+
+        // if no model is set, don't show anything
+        if ($this->model === null) {
+            parent::renderView();
+
+            return;
+        }
+
+        // Setup the Listbox
+        if($this->template->hasTag('name')) {
+            $this->template->set('name', $this->name);
+        }
+
+        if($this->template->hasTag('label')) {
+            $this->template->set('label', $this->label);
+        }
+
+        if($this->template->hasTag('label-weight')) {
+            $this->template->set('label-weight', $this->label_weight);
+        }
+
+        if($this->template->hasTag('label-align')) {
+            $this->template->set('label-align', $this->label_align);
+        }
+        if($this->template->hasTag('size') && $this->size) {
+            $this->template->set('size', (string) $this->size);
+        }
+
+        if($this->template->hasTag('multiple') && $this->multiple) {
+            $this->template->set('multiple', 'multiple');
+        }
+
+        // iterate data rows
+        $this->_renderedRowsCount = 0;
+
+        $tRowBackup = $this->tRow;
+        try {
+            foreach ($this->model as $entity) {
+                $this->currentRow = $entity;
+
+                $this->tRow = clone $tRowBackup;
+
+                if ($this->hook(self::HOOK_BEFORE_ROW) === false) {
+                    continue;
+                }
+
+                $this->renderRow();
+                ++$this->_renderedRowsCount;
+            }
+        } finally {
+            $this->tRow = $tRowBackup;
+            $this->currentRow = null;
+        }
+
+        // empty message
+        if ($this->_renderedRowsCount === 0) {
+            $empty = $this->tEmpty !== null ? $this->tEmpty->renderToHtml() : '';
+            if ($this->template->hasTag('rows')) {
+                $this->template->dangerouslyAppendHtml('rows', $empty);
+            } else {
+                $this->template->dangerouslyAppendHtml('_top', $empty);
+            }
+        }
 
         parent::renderView();
     }
-    
-    /**
-     * Sets the dropdown items from $this->values array.
-     */
-    protected function _renderItemsForValues(): void
+    protected function renderTRow(): void
     {
-        foreach ($this->values as $key => $val) {
-            $this->_tItem->set('value', (string) $key);
-            if (is_array($val)) {
-                if (array_key_exists('icon', $val)) {
-                    $this->_tIcon->set('iconClass', $val['icon'] . ' icon');
-                    $this->_tItem->dangerouslySetHtml('Icon', $this->_tIcon->renderToHtml());
-                } else {
-                    $this->_tItem->del('Icon');
-                }
-                //print_r($val);
-                $this->_tItem->set('title', $val['title'] || is_numeric($val['title']) ? (string) $val['title'] : '');
-            } else {
-                $this->_tItem->set('title', $val || is_numeric($val) ? (string) $val : '');
-            }
+        $this->tRow->trySet($this->getApp()->uiPersistence->typecastSaveRow($this->currentRow, $this->currentRow->get()));
 
-            // add item to template
-            $this->template->dangerouslyAppendHtml('Item', $this->_tItem->renderToHtml());
+        if ($this->tRow->hasTag('title')) {
+            $this->tRow->set('title', $this->currentRow->getTitle());
+        }
+
+        if(array_key_exists('selected', $this->currentRow->get())) {
+            $this->tRow->set('selected', 'selected');
+        }
+
+        $idStr = $this->getApp()->uiPersistence->typecastAttributeSaveField($this->currentRow->getIdField(), $this->currentRow->getId());
+        if ($this->tRow->hasTag('value')) {
+            $this->tRow->set('value', $idStr);
+        }
+        $this->tRow->trySet('row_id', $this->name . '-' . $idStr);
+    }
+
+    /**
+     * Render individual row. Override this method if you want to do more
+     * decoration.
+     */
+    public function renderRow(): void
+    {
+        $this->renderTRow();
+
+        $html = $this->tRow->renderToHtml();
+        if ($this->template->hasTag('rows')) {
+            $this->template->dangerouslyAppendHtml('rows', $html);
+        } else {
+            $this->template->dangerouslyAppendHtml('_top', $html);
         }
     }
 }
