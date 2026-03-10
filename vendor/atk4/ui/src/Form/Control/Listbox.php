@@ -108,7 +108,7 @@ class Listbox extends Input
     #[\Override]
     public function setInputValue(string $value): void
     {
-        if ($this->entityField !== null && $this->multiple && $this->entityField->getField()->type === 'string') {
+        if ($this->entityField !== null && $this->multiple && $this->entityField->getField()->type === 'json') {
             $value = $this->getApp()->encodeJson(explode(',', $value));
         }
 
@@ -158,12 +158,13 @@ class Listbox extends Input
 
         // iterate data rows
         $this->_renderedRowsCount = 0;
-
+        $this->values = [];
         $tRowBackup = $this->tRow;
         try {
             foreach ($this->model as $entity) {
                 $this->currentRow = $entity;
 
+                array_push($this->values, $entity->get('id'));
                 $this->tRow = clone $tRowBackup;
 
                 if ($this->hook(self::HOOK_BEFORE_ROW) === false) {
@@ -177,7 +178,8 @@ class Listbox extends Input
             $this->tRow = $tRowBackup;
             $this->currentRow = null;
         }
-
+        $this->setInputValue(implode(',', $this->values));
+        
         // empty message
         if ($this->_renderedRowsCount === 0) {
             $empty = $this->tEmpty !== null ? $this->tEmpty->renderToHtml() : '';

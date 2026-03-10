@@ -13,6 +13,10 @@ use Atk4\Ui\Icon;
 use Atk4\Ui\Header;
 use Atk4\Ui\Form;
 use Atk4\Ui\Form\Control\Listbox;
+use Atk4\Ui\Button;
+use Atk4\Ui\Js\JsExpression;
+use Atk4\Ui\Js\Jquery;
+use Atk4\Ui\Js\JsCallbackLoadableValue;
 
 require_once __DIR__ . '/init-app.php';
 
@@ -37,49 +41,51 @@ $array2 = [
 ];
 
 $array3 = [];
-/*
-$columns = Columns::addTo($app, ['class.highlight' => true]);
-$c = $columns->addColumn(5);
-Header::addTo($c, ['Active'])->addClass('center aligned');
-$seg = View::addTo($c, ["ui" => "raised segment"]);
-
-Lister::addTo($seg, [
-    'defaultTemplate' => 'lister.html',
-    'ipp' => 2,
-])->setSource($array1);
-
-$c = $columns->addColumn(1);
-Header::addTo($c, [''])->addClass('center aligned');
-Icon::addTo($c, ['arrows alternate horizontal'])->addClass('big')->setAttr(['style' => 'margin-top:150%;']);
-
-$c = $columns->addColumn(5);
-Header::addTo($c, ['Inactive'])->addClass('center aligned');
-$seg = View::addTo($c, ["ui" => "raised segment"]);
-
-Lister::addTo($seg, [
-    'defaultTemplate' => 'lister.html',
-    'ipp' => 2
-])->setSource($array2);
-
-*/
-//print_r($array1);
 
 $form = Form::addTo($app);
 
-$box = $form->addControl(
-    'Box2',
+$group = $form->addGroup(['width' => 'three']);
+$group->addControl(
+    'Box1',
     [
         Listbox::class,
-        'caption' => 'Tjena',
-        //'label' => 'Box2',
-        'size' => 4,
+        'caption' => 'Hej',
+        'size' => 5,
         'multiple' => true,
-        //'values' => $array1
         'width' => 'two',
     ]
 )->setSource($array1);
 
+$seg = View::addTo($group, ["ui" => "raised segment"])->setAttr('style', 'top: 12px;');
+
+$leftButton = Button::addTo($seg, ['', 'icon' => 'left arrow', 'class.left attached' => true])->setAttr('style', 'top: 21px;');
+$rightButton = Button::addTo($seg, ['', 'iconRight' => 'right arrow', 'class.right attached' => true])->setAttr('style', 'top: 21px;');
+
+$group->addControl(
+    'Box2',
+    [
+        Listbox::class,
+        'caption' => 'Då',
+        'size' => 5,
+        'multiple' => true,
+        'width' => 'two',
+    ])->setSource($array2);
+
+$form->on('click', static function(Jquery $j) {
+    return new JsExpression('alert([])', [atk4_print_r($j->get())]);
+}, ['item' => new JsCallbackLoadableValue(null, function ($v) {
+    return $this->getApp()->uiPersistence->typecastAttributeLoadField(
+        $this->model->getIdField(),
+        $v
+    );
+})]);
+
+$leftButton->on('mouseup', static function($button) {
+    return new JsExpression('alert([])', ['Hej']);
+});
+
+
 $form->onSubmit(function($form) {
-    //atk4_print_r($form->entity->get());
+    print_r($form->entity->get());
     return;
 });
